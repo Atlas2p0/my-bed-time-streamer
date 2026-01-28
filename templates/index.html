@@ -3,91 +3,159 @@
 <head>
     <title>Bedtime Streamer</title>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; padding: 20px; }
-        .movie-card { background: #1e1e1e; padding: 15px; margin-bottom: 10px; border-radius: 8px; }
-        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
-        select, input { padding: 8px; margin: 5px 0; }
-        .status { color: #00ff00; font-weight: bold; }
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: white; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .folder-card { background: #1e1e1e; padding: 20px; border-radius: 15px; text-align: center; cursor: pointer; border: 2px solid transparent; transition: 0.3s; }
+        .folder-card:hover { border-color: #007bff; background: #252525; }
+        .episode-row { background: #1e1e1e; padding: 15px; margin: 10px 0; border-radius: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 15px; }
+        .controls { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button.stop { background: #dc3545; }
+        button.back { background: #444; margin-bottom: 20px; }
+        select { background: #333; color: white; border: 1px solid #555; padding: 8px; border-radius: 5px; }
+        .hidden { display: none; }
+        #status-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: #007bff; padding: 10px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>🎬 Bedtime Streamer</h1>
-    <div id="status-area"></div>
-    <div id="library">Loading movies...</div>
+
+    <div id="status-bar" class="hidden">Initializing Stream...</div>
+
+    <!-- VIEW 1: LIBRARY -->
+    <div id="view-library">
+        <h1>📁 Media Library</h1>
+        <div id="library-grid" class="grid"></div>
+    </div>
+
+    <!-- VIEW 2: EPISODES -->
+    <div id="view-episodes" class="hidden">
+        <button class="back" onclick="showLibrary()">← Back to Library</button>
+        <h1 id="current-folder-name"></h1>
+        <div id="episode-list"></div>
+    </div>
 
     <script>
-        async function loadLibrary() {
-            const res = await fetch('/api/library');
-            const movies = await res.json();
-            const container = document.getElementById('library');
-            container.innerHTML = '';
+        let library = [];
+        let availablePresets = [];
+        async function loadData() {
+            // Fetch both Library and Presets
+            const [libRes, preRes] = await Promise.all([
+                fetch('/api/library'),
+                fetch('/api/presets')
+            ])
+            library = await libRes.json();
+            availablePresets = await preRes.json(); // Store the keys from backend
+            renderLibrary();
+        }
 
-            movies.forEach((movie, index) => { // Added index for unique IDs
-                const div = document.createElement('div');
-                div.className = 'movie-card';
-                
-                let subHtml = '';
-                const safeId = "movie-" + index; // Safe ID for elements
-                const hasSubs = movie.metadata.has_internal_subs
-                const subIndex = movie.metadata.text_sub_index
-
-                if (movie.local_subs && movie.local_subs.length > 0) {
-                    subHtml = `<label>Sidecar Subs:</label>
-                            <select id="sub-${safeId}">
-                                <option value="">None / Use Internal</option>`;
-                    movie.local_subs.forEach(sub => {
-                        subHtml += `<option value="${sub.path.replace(/\\/g, '/')}">${sub.name}</option>`;
-                    });
-                    subHtml += `</select>`;
-                } else {
-                    subHtml = hasSubs
-                        ? '<span style="color: #aaa;">(Internal Subs Detected)</span><input type="hidden" id="sub-'+safeId+'" value="">' 
-                        : '<input type="text" placeholder="Manual .srt path" id="sub-'+safeId+'">';
-                }
-
-                div.innerHTML = `
-                    <h3>${movie.title}</h3>
-                    <p>Codec: ${movie.metadata.codec} | Res: ${movie.metadata.resolution}</p>
-                    <div style="margin-bottom:10px;">${subHtml}</div>
-                    <select id="preset-${safeId}">
-                        <option value="cpu_fast">CPU (Very Fast)</option>
-                        <option value="gpu_nvenc">GPU (NVIDIA NVENC)</option>
-                        <option value="gpu_nvenc_high_quality">GPU (High Quality)</option>
-                    </select>
-                    <button onclick="startStream('${movie.full_path.replace(/\\/g, '/')}',
-                    '${movie.title}', ${hasSubs}, ${subIndex}, '${safeId}')">Start Stream</button>
-                    <button style="background:red" onclick="stopStream()">Stop</button>
+        function renderLibrary() {
+            const grid = document.getElementById('library-grid');
+            grid.innerHTML = '';
+            library.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = 'folder-card';
+                card.onclick = () => showEpisodes(index);
+                card.innerHTML = `
+                    <div style="font-size: 50px;">🎬</div>
+                    <h3>${item.folder_name}</h3>
+                    <p style="color: #888;">${item.episodes.length} Episodes</p>
                 `;
-                container.appendChild(div);
+                grid.appendChild(card);
             });
         }
 
-        async function startStream(path, title, hasInternalSubs, textSubIndex, safeId) {
-            const preset = document.getElementById('preset-' + safeId).value;
-            const subInput = document.getElementById('sub-' + safeId);
-            const sub_path = subInput ? subInput.value : null;
+        function showEpisodes(index) {
+            const folder = library[index];
+            document.getElementById('view-library').classList.add('hidden');
+            document.getElementById('view-episodes').classList.remove('hidden');
+            document.getElementById('current-folder-name').innerText = folder.folder_name;
 
-            const res = await fetch('/api/start', {
+            const list = document.getElementById('episode-list');
+            list.innerHTML = '';
+
+            folder.episodes.forEach((ep, epIdx) => {
+                const row = document.createElement('div');
+                row.className = 'episode-row';
+                
+                // 1. Build Subtitle Dropdown
+                let subOptions = `<option value="">None / Use Internal</option>`;
+                folder.local_subs.forEach(s => {
+                    subOptions += `<option value="${s.path}">${s.name}</option>`;
+                });
+
+                // 2. Build Preset Dropdown DYNAMICALLY
+                let presetOptions = '';
+                availablePresets.forEach(p => {
+                    // Make the name look pretty (e.g., gpu_nvenc -> GPU NVENC)
+                    const prettyName = p.replace(/_/g, ' ').toUpperCase();
+                    presetOptions += `<option value="${p}">${prettyName}</option>`;
+                });
+
+                row.innerHTML = `
+                    <div style="flex: 1;"><strong>${ep.name}</strong></div>
+                    <div class="controls">
+                        <label>Subs:</label>
+                        <select id="sub-${index}-${epIdx}">${subOptions}</select>
+                        
+                        <label>Preset:</label>
+                        <select id="preset-${index}-${epIdx}">
+                            ${presetOptions}
+                        </select>
+                        
+                        <button onclick="startEpisode(${index}, ${epIdx})">Start</button>
+                        <button class="stop" onclick="stopStream()">Stop</button>
+                    </div>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        function showLibrary() {
+            document.getElementById('view-library').classList.remove('hidden');
+            document.getElementById('view-episodes').classList.add('hidden');
+        }
+
+        async function startEpisode(folderIdx, epIdx) {
+            const folder = library[folderIdx];
+            const ep = folder.episodes[epIdx];
+            const subPath = document.getElementById(`sub-${folderIdx}-${epIdx}`).value;
+            const preset = document.getElementById(`preset-${folderIdx}-${epIdx}`).value;
+
+            const statusBar = document.getElementById('status-bar');
+            statusBar.innerText = `Preparing: ${ep.name}...`;
+            statusBar.classList.remove('hidden');
+
+            // 1. Probe the file
+            const probeRes = await fetch('/api/probe', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ path: ep.path })
+            });
+            const metadata = await probeRes.json();
+
+            // 2. Start FFmpeg
+            await fetch('/api/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ 
-                    path: path, 
+                    path: ep.path, 
                     preset: preset, 
-                    sub_path: sub_path,
-                    has_internal_subs: hasInternalSubs,
-                    text_sub_index: textSubIndex 
+                    sub_path: subPath,
+                    has_internal_subs: metadata.has_internal_subs,
+                    text_sub_index: metadata.text_sub_index,
+                    pgs_sub_index: metadata.pgs_sub_index
                 })
             });
-            const data = await res.json();
-            document.getElementById('status-area').innerHTML = `<span class="status">Streaming: ${title}</span>`;
+
+            statusBar.innerText = `NOW STREAMING: ${ep.name}`;
         }
 
         async function stopStream() {
             await fetch('/api/stop', { method: 'POST' });
-            document.getElementById('status-area').innerText = "Stopped.";
+            document.getElementById('status-bar').classList.add('hidden');
         }
 
-        loadLibrary();
+        loadData();
     </script>
 </body>
 </html>

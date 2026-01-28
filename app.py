@@ -74,35 +74,47 @@ def get_video_metadata(file_path):
     
 @app.route('/api/library', methods=['GET'])
 def list_library():
-    movie_list = []
-    # Walk through the "Media Library" dir
-    for root, dirs, files in os.walk(LIBRARY_PATH):
-        # Find video files
-        video_files = [f for f in files if f.lower().endswith(VIDEO_EXTENSIONS)]
-        # Find subtitle files (.srt)
-        subtitle_files = [f for f in files if f.lower().endswith('.srt')]
+    library_data = []
+    
+    # We list the top-level directories in your Media Library
+    for entry in os.scandir(LIBRARY_PATH):
+        if entry.is_dir():
+            folder_path = entry.path
+            episodes = []
+            local_subs = []
 
-        for video_file in video_files:
-            full_path = os.path.abspath(os.path.join(root, video_file))
-            display_name = os.path.basename(root)
+            # Scan inside this specific folder
+            for root, dirs, files in os.walk(folder_path):
+                for f in files:
+                    full_p = os.path.join(root, f)
+                    if f.lower().endswith(VIDEO_EXTENSIONS):
+                        episodes.append({
+                            "name": f,
+                            "path": full_p
+                        })
+                    elif f.lower().endswith('.srt'):
+                        local_subs.append({
+                            "name": f,
+                            "path": full_p
+                        })
 
-            # Map subtitle files to their abs paths
-            detected_subs = []
-            for s in subtitle_files:
-                detected_subs.append({
-                    "name": s,
-                    "path": os.path.abspath(os.path.join(root, s))
+            if episodes:
+                library_data.append({
+                    "folder_name": entry.name,
+                    "local_subs": local_subs,
+                    "episodes": sorted(episodes, key=lambda x: x['name'])
                 })
-            metadata = get_video_metadata(full_path)
 
-            movie_list.append({
-                "title": display_name,
-                "filename": video_file,
-                "full_path": full_path,
-                "metadata": metadata,
-                "local_subs": detected_subs
-            })
-    return jsonify(movie_list)
+    return jsonify(library_data)
+
+@app.route('/api/probe', methods=['POST'])
+def probe_file():
+    path = request.json.get('path')
+    metadata = get_video_metadata(path)
+    return jsonify(metadata)
+@app.route('/api/presets', methods=['GET'])
+def get_presets():
+    return jsonify(list(PRESETS.keys()))
 
 @app.route('/api/stop', methods=['POST'])
 def stop_stream():
