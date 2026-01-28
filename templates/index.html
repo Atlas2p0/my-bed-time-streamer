@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bedtime Streamer</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; padding: 20px; }
+        .movie-card { background: #1e1e1e; padding: 15px; margin-bottom: 10px; border-radius: 8px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        select, input { padding: 8px; margin: 5px 0; }
+        .status { color: #00ff00; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🎬 Bedtime Streamer</h1>
+    <div id="status-area"></div>
+    <div id="library">Loading movies...</div>
+
+    <script>
+        async function loadLibrary() {
+            const res = await fetch('/api/library');
+            const movies = await res.json();
+            const container = document.getElementById('library');
+            container.innerHTML = '';
+
+            movies.forEach(movie => {
+                const div = document.createElement('div');
+                div.className = 'movie-card';
+                
+                let subHtml = movie.metadata.has_subtitles 
+                    ? '<span style="color: green;">✔ Internal Subs Found</span>' 
+                    : '<input type="text" placeholder="Paste path to .srt file" id="sub-'+movie.title+'">';
+
+                div.innerHTML = `
+                    <h3>${movie.title}</h3>
+                    <p>Codec: ${movie.metadata.codec} | Res: ${movie.metadata.resolution}</p>
+                    ${subHtml} <br>
+                    <select id="preset-${movie.title}">
+                        <option value="cpu_fast">CPU (Very Fast)</option>
+                        <option value="gpu_nvenc">GPU (NVIDIA NVENC)</option>
+                        <option value="gpu_nvenc_high_quality">GPU (High Quality)</option>
+                    </select>
+                    <button onclick="startStream('${movie.full_path.replace(/\\/g, '/')}', '${movie.title}')">Start Stream</button>
+                    <button style="background:red" onclick="stopStream()">Stop</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        async function startStream(path, title) {
+            const preset = document.getElementById('preset-' + title).value;
+            const subInput = document.getElementById('sub-' + title);
+            const sub_path = subInput ? subInput.value : null;
+
+            document.getElementById('status-area').innerText = "Starting " + title + "...";
+
+            const res = await fetch('/api/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ path, preset, sub_path })
+            });
+            const data = await res.json();
+            document.getElementById('status-area').innerHTML = `<span class="status">Streaming: ${title}</span>`;
+        }
+
+        async function stopStream() {
+            await fetch('/api/stop', { method: 'POST' });
+            document.getElementById('status-area').innerText = "Stopped.";
+        }
+
+        loadLibrary();
+    </script>
+</body>
+</html>
