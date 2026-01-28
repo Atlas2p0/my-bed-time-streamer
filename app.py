@@ -40,10 +40,30 @@ def get_video_metadata(file_path):
     try:
         result = subprocess.check_output(cmd).decode('utf-8')
         data = json.loads(result)
-        has_subtitles = any(s['codec_type'] == 'subtitle' for s in data['streams'])
+
+        # Find the index of the first Text-Based subtitle stream
+        text_sub_index = None
+        pgs_sub_index = None
+        # Common text formats supported by libass
+        text_formats = ['ass', 'ssa', 'subrip', 'srt', 'mov_text']
+
+        sub_count = 0
+        for s in data['streams']:
+            if s['codec_type'] == 'subtitle':
+                codec = s.get('codec_name', '')
+                if codec in text_formats and text_sub_index is None:
+                    text_sub_index = sub_count
+
+                elif codec == 'hdmv_pgs_subtitle' and pgs_sub_index is None:
+                    pgs_sub_index = sub_count
+                sub_count += 1
+
+
         video_stream = next((s for s in data['streams'] if s['codec_type'] == 'video'), None)
         return {
-            "has_subtitles": has_subtitles,
+            "has_internal_subs": (text_sub_index is not None or pgs_sub_index is not None),
+            "text_sub_index": text_sub_index,
+            "pgs_sub_index": pgs_sub_index, 
             "codec": video_stream.get('codec_name') if video_stream else "unknown",
             "resolution":
             f"{video_stream.get('width')}x{video_stream.get('height')}" if video_stream else "unknown"
@@ -57,22 +77,31 @@ def list_library():
     movie_list = []
     # Walk through the "Media Library" dir
     for root, dirs, files in os.walk(LIBRARY_PATH):
-        for file in files:
-            if file.lower().endswith(VIDEO_EXTENSIONS):
-                full_path = os.path.abspath(os.path.join(root, file))
+        # Find video files
+        video_files = [f for f in files if f.lower().endswith(VIDEO_EXTENSIONS)]
+        # Find subtitle files (.srt)
+        subtitle_files = [f for f in files if f.lower().endswith('.srt')]
 
-                # Get folder name (The "Movie Name")
-                display_name = os.path.basename(root)
-                
-                # Probe the file for details
-                metadata = get_video_metadata(full_path)
+        for video_file in video_files:
+            full_path = os.path.abspath(os.path.join(root, video_file))
+            display_name = os.path.basename(root)
 
-                movie_list.append({
-                    "title": display_name,
-                    "filename": file,
-                    "full_path": full_path,
-                    "metadata": metadata
+            # Map subtitle files to their abs paths
+            detected_subs = []
+            for s in subtitle_files:
+                detected_subs.append({
+                    "name": s,
+                    "path": os.path.abspath(os.path.join(root, s))
                 })
+            metadata = get_video_metadata(full_path)
+
+            movie_list.append({
+                "title": display_name,
+                "filename": video_file,
+                "full_path": full_path,
+                "metadata": metadata,
+                "local_subs": detected_subs
+            })
     return jsonify(movie_list)
 
 @app.route('/api/stop', methods=['POST'])
@@ -87,54 +116,55 @@ def stop_stream():
 def start_stream():
     global current_process
     data = request.json
-
     movie_path = data.get('path')
     preset_key = data.get('preset', 'cpu_fast')
-    sub_path = data.get('sub_path') # This will be the path to an .srt file if provided
     preset = PRESETS.get(preset_key)
+    sub_path = data.get('sub_path') # This will be the path to an .srt file if provided
 
-    # 1. Kill old stream if running
-    if current_process:
-        current_process.terminate()
-    # 2. Build the command
+    # Re-probe to get the latest metadata
+    metadata = get_video_metadata(movie_path)
+
     # Base command
-    cmd = [
-        "ffmpeg", "-y", "-i", movie_path
-    ]
+    cmd = ["ffmpeg", "-y", "-i", movie_path]
 
-    # Handle Subtitles (Hardcoding/Burn-in)
-    # If a sub_path is provided, we use the subtitles filter
-    video_filters = "format=yuv420p"
-    if sub_path:
-        # Formatting paths for subtitles filter can be tricky
-        video_filters = f"subtitles='{sub_path}',format=yuv420p"
-    
-    cmd += ["-vf", video_filters]
-
-    # Apply Preset Video Settings
-    cmd += ["-c:v", preset['v_codec']]
-    cmd += preset['v_profile']
-
-    # Audio Settings
+    # Filter Logic
+    filter_str = ""
+    if sub_path and sub_path != "":
+        # External SRT
+        esc_sub = sub_path.replace("'", "'\\\\\\''").replace(":", "\\:")
+        filter_str = f"subtitles='{esc_sub}',format=yuv420p"
+        cmd += ["-vf", filter_str]
+    elif metadata.get('text_sub_index') is not None:
+        # Internal Text (ASS/SRT)
+        idx = metadata.get('text_sub_index')
+        esc_path = movie_path.replace("'", "'\\\\\\''").replace(":","\\:")
+        filter_str = f"subtitles='{esc_path}':si={idx},format=yuv420p"
+        cmd += ["-vf", filter_str]
+    elif metadata.get('pgs_sub_index') is not None:
+        # Internal Image (PGS) - Needs filter_complex flag
+        idx = metadata.get('pgs_sub_index')
+        # This part overlays subtitle stream onto video stream
+        cmd += ["-filter_complex", f"[0:v][0:s:{idx}]overlay,format=yuv420p"]
+    else:
+        # No Subs
+        cmd += ["-vf", "format=yuv420p"]
+    # Encoding Settings for Audio/Video
+    cmd += ["-c:v", preset['v_codec']] + preset['v_profile']
     cmd += ["-c:a", preset['a_codec'], "-b:a", "192k", "-ac", "2"]
 
-    # HLS Output Settings
-    cmd += [
-        "-f", "hls",
-        "-hls_time", "6",
-        "-hls_list_size", "0", # VOD mode
-        "-hls_segment_filename", "/var/www/hls/segment_%03d.ts",
-        "/var/www/hls/index.m3u8"
-    ]
-    # 1.5 Clean up old segments
+    # HLS Settings
+    cmd += ["-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
+            "-hls_segment_filename", f"{HLS_DIR}/segment_%03d.ts",
+            f"{HLS_DIR}/index.m3u8"]
+    
+    # Cleanup and Start stream
     for f in os.listdir(HLS_DIR):
-        if f.endswith(".ts") or f.endswith(".m3u8"):
-            try:
-                os.remove(os.path.join(HLS_DIR, f))
-            except:
-                pass
+        if f.endswith((".ts", ".m3u8")):
+            try: os.remove(os.path.join(HLS_DIR, f))
+            except: pass
+    
     current_process = subprocess.Popen(cmd)
-    return jsonify({"status" : "started", "command": " ".join(cmd)})
+    return jsonify({"status": "started"})
 
 @app.route('/')
 def index():

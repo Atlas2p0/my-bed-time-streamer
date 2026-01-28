@@ -22,41 +22,61 @@
             const container = document.getElementById('library');
             container.innerHTML = '';
 
-            movies.forEach(movie => {
+            movies.forEach((movie, index) => { // Added index for unique IDs
                 const div = document.createElement('div');
                 div.className = 'movie-card';
                 
-                let subHtml = movie.metadata.has_subtitles 
-                    ? '<span style="color: green;">✔ Internal Subs Found</span>' 
-                    : '<input type="text" placeholder="Paste path to .srt file" id="sub-'+movie.title+'">';
+                let subHtml = '';
+                const safeId = "movie-" + index; // Safe ID for elements
+                const hasSubs = movie.metadata.has_internal_subs
+                const subIndex = movie.metadata.text_sub_index
+
+                if (movie.local_subs && movie.local_subs.length > 0) {
+                    subHtml = `<label>Sidecar Subs:</label>
+                            <select id="sub-${safeId}">
+                                <option value="">None / Use Internal</option>`;
+                    movie.local_subs.forEach(sub => {
+                        subHtml += `<option value="${sub.path.replace(/\\/g, '/')}">${sub.name}</option>`;
+                    });
+                    subHtml += `</select>`;
+                } else {
+                    subHtml = hasSubs
+                        ? '<span style="color: #aaa;">(Internal Subs Detected)</span><input type="hidden" id="sub-'+safeId+'" value="">' 
+                        : '<input type="text" placeholder="Manual .srt path" id="sub-'+safeId+'">';
+                }
 
                 div.innerHTML = `
                     <h3>${movie.title}</h3>
                     <p>Codec: ${movie.metadata.codec} | Res: ${movie.metadata.resolution}</p>
-                    ${subHtml} <br>
-                    <select id="preset-${movie.title}">
+                    <div style="margin-bottom:10px;">${subHtml}</div>
+                    <select id="preset-${safeId}">
                         <option value="cpu_fast">CPU (Very Fast)</option>
                         <option value="gpu_nvenc">GPU (NVIDIA NVENC)</option>
                         <option value="gpu_nvenc_high_quality">GPU (High Quality)</option>
                     </select>
-                    <button onclick="startStream('${movie.full_path.replace(/\\/g, '/')}', '${movie.title}')">Start Stream</button>
+                    <button onclick="startStream('${movie.full_path.replace(/\\/g, '/')}',
+                    '${movie.title}', ${hasSubs}, ${subIndex}, '${safeId}')">Start Stream</button>
                     <button style="background:red" onclick="stopStream()">Stop</button>
                 `;
                 container.appendChild(div);
             });
         }
 
-        async function startStream(path, title) {
-            const preset = document.getElementById('preset-' + title).value;
-            const subInput = document.getElementById('sub-' + title);
+        async function startStream(path, title, hasInternalSubs, textSubIndex, safeId) {
+            const preset = document.getElementById('preset-' + safeId).value;
+            const subInput = document.getElementById('sub-' + safeId);
             const sub_path = subInput ? subInput.value : null;
-
-            document.getElementById('status-area').innerText = "Starting " + title + "...";
 
             const res = await fetch('/api/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ path, preset, sub_path })
+                body: JSON.stringify({ 
+                    path: path, 
+                    preset: preset, 
+                    sub_path: sub_path,
+                    has_internal_subs: hasInternalSubs,
+                    text_sub_index: textSubIndex 
+                })
             });
             const data = await res.json();
             document.getElementById('status-area').innerHTML = `<span class="status">Streaming: ${title}</span>`;
