@@ -131,7 +131,7 @@ def start_stream():
     movie_path = data.get('path')
     preset_key = data.get('preset', 'cpu_fast')
     preset = PRESETS.get(preset_key)
-    sub_path = data.get('sub_path') # This will be the path to an .srt file if provided
+    sub_path = data.get('sub_path') #  This will be the path to an .srt file if provided
 
     # Re-probe to get the latest metadata
     metadata = get_video_metadata(movie_path)
@@ -153,7 +153,7 @@ def start_stream():
         filter_str = f"subtitles='{esc_path}':si={idx},format=yuv420p"
         cmd += ["-vf", filter_str]
     elif metadata.get('pgs_sub_index') is not None:
-        # Internal Image (PGS) - Needs filter_complex flag
+        # Internal Image (PGS) - Needs filter_complex flage e e e 
         idx = metadata.get('pgs_sub_index')
         # This part overlays subtitle stream onto video stream
         cmd += ["-filter_complex", f"[0:v][0:s:{idx}]overlay,format=yuv420p"]
