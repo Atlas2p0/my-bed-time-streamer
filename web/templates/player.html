@@ -63,7 +63,7 @@
 <body>
     <div id="loading">
         <div class="spinner"></div>
-        <div>Loading stream...</div>
+        <div id="loading-text">Waiting for stream...</div>
     </div>
     <div id="error">
         <h2>Stream Error</h2>
@@ -71,72 +71,12 @@
         <button onclick="location.reload()" style="margin-top: 20px; padding: 10px 20px; cursor: pointer;">Retry</button>
     </div>
     <div id="video-container">
-        <video id="video" controls autoplay playsinline></video>
+        <video id="video" controls playsinline></video>
     </div>
 
-    <script>
-        const video = document.getElementById('video');
-        const loading = document.getElementById('loading');
-        const errorDiv = document.getElementById('error');
-        const errorText = document.getElementById('error-text');
-        
-        function showError(msg) {
-            loading.style.display = 'none';
-            errorDiv.style.display = 'block';
-            errorText.textContent = msg;
-        }
-
-        function initPlayer() {
-            const streamUrl = '/hls/index.m3u8';
-            
-            if (Hls.isSupported()) {
-                const hls = new Hls({
-                    enableWorker: true,
-                    lowLatencyMode: true,
-                    maxBufferLength: 30,
-                    manifestLoadingMaxRetry: 20,
-                    manifestLoadingRetryDelay: 1000,
-                    fragLoadingMaxRetry: 20,
-                    fragLoadingRetryDelay: 1000
-                });
-                
-                hls.loadSource(streamUrl);
-                hls.attachMedia(video);
-                
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    loading.style.display = 'none';
-                    video.play().catch(e => console.log('Autoplay blocked'));
-                });
-                
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                    console.error('HLS error:', data);
-                    if (data.fatal) {
-                        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                            showError('Network error. Stream may still be starting...');
-                            hls.startLoad();
-                        } else {
-                            showError('Playback error: ' + data.details);
-                        }
-                    }
-                });
-                
-            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                // Native HLS (Safari)
-                video.src = streamUrl;
-                video.addEventListener('loadedmetadata', () => {
-                    loading.style.display = 'none';
-                    video.play();
-                });
-                video.addEventListener('error', () => {
-                    showError('Failed to load stream');
-                });
-            } else {
-                showError('HLS not supported in this browser');
-            }
-        }
-
-        // Start after short delay to allow stream to begin
-        setTimeout(initPlayer, 2000);
-    </script>
+    <!-- Load player modules in order -->
+    <script src="{{ url_for('static', filename='js/player/StreamPoller.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/player/Player.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/player/main.js') }}"></script>
 </body>
 </html>

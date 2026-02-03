@@ -1,14 +1,13 @@
 import os
 from flask import Flask, send_from_directory, render_template
-import sys
 import socket
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__,
     template_folder=os.path.join(PROJECT_ROOT, 'web', 'templates'),
-    static_folder=os.path.join(PROJECT_ROOT, 'static'),
-    static_url_path='/static'
+    static_folder=os.path.join(PROJECT_ROOT, 'web', 'static'),
+    static_url_path='/web/static'
 )
 
 from routes import register_blueprints
