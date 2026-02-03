@@ -1,19 +1,17 @@
 /**
- * Player: handles HLS playback once stream is ready
+ * Player: handles HLS playback with native retry behavior
  */
 class Player {
     constructor(videoElement, streamUrl) {
         this.video = videoElement;
         this.streamUrl = streamUrl;
         this.hls = null;
+        this.loadingText = document.getElementById('loading-text');
+        this.errorCount = 0;
+        this.maxErrors = 10;
     }
 
     start() {
-        const loadingText = document.getElementById('loading-text');
-        if (loadingText) {
-            loadingText.textContent = 'Buffering...';
-        }
-
         if (Hls.isSupported()) {
             this.initHls();
         } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -29,30 +27,32 @@ class Player {
             lowLatencyMode: true,
             maxBufferLength: 30,
             maxBufferHole: 0.5,
-            manifestLoadingTimeOut: 10000,
-            manifestLoadingMaxRetry: 5,
-            manifestLoadingRetryDelay: 500,
-            fragLoadingTimeOut: 10000,
-            fragLoadingMaxRetry: 5,
-            fragLoadingRetryDelay: 500,
-            startLevel: 0,
-            autoStartLoad: true
+            // Let Hls.js handle retries
+            manifestLoadingMaxRetry: 20,
+            manifestLoadingRetryDelay: 1000,
+            fragLoadingMaxRetry: 10,
+            fragLoadingRetryDelay: 1000,
+            startLevel: 0
         });
 
         this.hls.loadSource(this.streamUrl);
         this.hls.attachMedia(this.video);
 
-        this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            const loading = document.getElementById('loading');
-            if (loading) loading.style.display = 'none';
+        // Update loading text on retry
+        this.hls.on(Hls.Events.MANIFEST_LOADING, () => {
+            if (this.loadingText) {
+                this.loadingText.textContent = 'Loading manifest...';
+            }
+        });
 
+        this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            this.hideLoading();
             this.video.play().catch(e => {
                 console.log('Autoplay blocked, waiting for user');
             });
         });
 
         this.hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('HLS error:', data);
             if (data.fatal) {
                 this.handleFatalError(data);
             }
@@ -60,26 +60,62 @@ class Player {
     }
 
     initNative() {
+        // Safari native HLS - browser handles all retries
         this.video.src = this.streamUrl;
 
         this.video.addEventListener('loadedmetadata', () => {
-            const loading = document.getElementById('loading');
-            if (loading) loading.style.display = 'none';
+            this.hideLoading();
+            this.video.play().catch(e => console.log('Autoplay blocked'));
+        });
 
-            this.video.play();
+        this.video.addEventListener('waiting', () => {
+            if (this.loadingText) {
+                this.loadingText.textContent = 'Buffering...';
+            }
+        });
+
+        this.video.addEventListener('playing', () => {
+            this.hideLoading();
         });
 
         this.video.addEventListener('error', () => {
-            this.showError('Failed to load stream');
+            const error = this.video.error;
+            if (error && error.code === 2) {
+                // Network error - browser is retrying
+                this.errorCount++;
+                if (this.loadingText) {
+                    this.loadingText.textContent = `Retrying... (${this.errorCount})`;
+                }
+                if (this.errorCount > this.maxErrors) {
+                    this.showError('Stream failed to load after multiple attempts');
+                }
+            } else {
+                this.showError('Playback error');
+            }
         });
     }
 
     handleFatalError(data) {
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            this.hls.startLoad();
+            // Hls.js already retrying, just update UI
+            this.errorCount++;
+            if (this.loadingText) {
+                this.loadingText.textContent = `Retrying... (${this.errorCount})`;
+            }
+            if (this.errorCount > this.maxErrors) {
+                this.showError('Stream failed to load after multiple attempts');
+                this.hls.destroy();
+            } else {
+                this.hls.startLoad();
+            }
         } else {
             this.showError('Playback error: ' + data.details);
         }
+    }
+
+    hideLoading() {
+        const loading = document.getElementById('loading');
+        if (loading) loading.style.display = 'none';
     }
 
     showError(msg) {
