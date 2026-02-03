@@ -2,13 +2,12 @@ let library = [];
 let availablePresets = [];
 
 async function loadData() {
-    // Fetch both Library and Presets
     const [libRes, preRes] = await Promise.all([
         fetch('/api/library'),
         fetch('/api/presets')
     ])
     library = await libRes.json();
-    availablePresets = await preRes.json(); // Store the keys from backend
+    availablePresets = await preRes.json();
     renderLibrary();
 }
 
@@ -41,16 +40,13 @@ function showEpisodes(index) {
         const row = document.createElement('div');
         row.className = 'episode-row';
         
-        // 1. Build Subtitle Dropdown
         let subOptions = `<option value="">None / Use Internal</option>`;
         folder.local_subs.forEach(s => {
             subOptions += `<option value="${s.path}">${s.name}</option>`;
         });
 
-        // 2. Build Preset Dropdown DYNAMICALLY
         let presetOptions = '';
         availablePresets.forEach(p => {
-            // Make the name look pretty (e.g., gpu_nvenc -> GPU NVENC)
             const prettyName = p.replace(/_/g, ' ').toUpperCase();
             presetOptions += `<option value="${p}">${prettyName}</option>`;
         });
@@ -66,8 +62,8 @@ function showEpisodes(index) {
                     ${presetOptions}
                 </select>
                 
-                <button onclick="startEpisode(${index}, ${epIdx})">Start</button>
-                <button class="stop" onclick="stopStream()">Stop</button>
+                <button onclick="startEpisode(${index}, ${epIdx})">▶ Start Stream</button>
+                <button class="stop" onclick="stopStream()">⏹ Stop</button>
             </div>
         `;
         list.appendChild(row);
@@ -89,7 +85,9 @@ async function startEpisode(folderIdx, epIdx) {
     statusBar.innerText = `Preparing: ${ep.name}...`;
     statusBar.classList.remove('hidden');
 
-    // 1. Probe the file
+    // Open player in new tab immediately
+    const playerWindow = window.open('/player', 'bedtime-player');
+
     const probeRes = await fetch('/api/probe', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -97,7 +95,6 @@ async function startEpisode(folderIdx, epIdx) {
     });
     const metadata = await probeRes.json();
 
-    // 2. Start FFmpeg
     await fetch('/api/start', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -119,5 +116,4 @@ async function stopStream() {
     document.getElementById('status-bar').classList.add('hidden');
 }
 
-// Initialize on page load
 loadData();
