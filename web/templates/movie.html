@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bedtime Streamer - Movie</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: white; padding: 20px; }
+        .back { background: #444; border: none; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-bottom: 20px; }
+        h1 { margin-bottom: 10px; }
+        .movie-info { color: #888; margin-bottom: 30px; }
+        
+        .episodes-list { max-width: 800px; }
+        .episode-item {
+            background: #1e1e1e;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+        }
+        .episode-name { font-size: 18px; font-weight: bold; margin-bottom: 15px; }
+        
+        .options-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .option-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .option-group label { font-size: 12px; color: #888; text-transform: uppercase; }
+        select {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 10px 15px;
+            border-radius: 5px;
+            min-width: 150px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-left: auto;
+        }
+        button.play {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        button.play:hover { background: #0056b3; }
+        button.stop {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        button.stop:hover { background: #c82333; }
+        
+        #status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: #007bff;
+            padding: 15px;
+            text-align: center;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <button class="back" onclick="goBack()">← Back to Library</button>
+    
+    <h1 id="movie-title">Loading...</h1>
+    <div class="movie-info" id="movie-info"></div>
+    
+    <div class="episodes-list" id="episodes-list">Loading episodes...</div>
+    
+    <div id="status-bar"></div>
+
+    <script src="{{ url_for('static', filename='js/movie.js') }}"></script>
+</body>
+</html>

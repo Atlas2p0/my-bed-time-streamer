@@ -1,119 +1,90 @@
 let library = [];
-let availablePresets = [];
+let searchQuery = '';
 
 async function loadData() {
-    const [libRes, preRes] = await Promise.all([
-        fetch('/api/library'),
-        fetch('/api/presets')
-    ])
-    library = await libRes.json();
-    availablePresets = await preRes.json();
+    const res = await fetch('/api/library');
+    library = await res.json();
     renderLibrary();
+    initSearch();
+}
+
+function initSearch() {
+    const searchInput = document.getElementById('search-input');
+    searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value.toLowerCase().trim();
+        renderLibrary();
+    });
+}
+
+function getFilteredLibrary() {
+    if (!searchQuery) return library;
+    
+    return library.filter(folder => {
+        if (folder.folder_name.toLowerCase().includes(searchQuery)) {
+            return true;
+        }
+        return folder.episodes.some(ep => 
+            ep.name.toLowerCase().includes(searchQuery)
+        );
+    });
 }
 
 function renderLibrary() {
     const grid = document.getElementById('library-grid');
+    const resultsInfo = document.getElementById('search-results-info');
+    const filtered = getFilteredLibrary();
+    
     grid.innerHTML = '';
-    library.forEach((item, index) => {
+    
+    if (searchQuery) {
+        const totalMovies = filtered.reduce((sum, f) => sum + f.episodes.length, 0);
+        resultsInfo.textContent = `Found ${filtered.length} folders, ${totalMovies} movies`;
+    } else {
+        resultsInfo.textContent = '';
+    }
+    
+    if (filtered.length === 0) {
+        grid.innerHTML = `<div class="no-results">No movies found matching "${searchQuery}"</div>`;
+        return;
+    }
+    
+    filtered.forEach((item) => {
+        const originalIndex = library.indexOf(item);
+        
         const card = document.createElement('div');
         card.className = 'folder-card';
-        card.onclick = () => showEpisodes(index);
+        card.onclick = () => {
+            // Navigate to movie page, clearing any search state
+            window.location.href = `/movie?f=${originalIndex}`;
+        };
+        
+        let episodeInfo = `${item.episodes.length} Episodes`;
+        if (searchQuery) {
+            const matching = item.episodes.filter(ep => 
+                ep.name.toLowerCase().includes(searchQuery)
+            ).length;
+            if (matching > 0 && matching < item.episodes.length) {
+                episodeInfo = `${matching} of ${item.episodes.length} match`;
+            }
+        }
+        
         card.innerHTML = `
             <div style="font-size: 50px;">🎬</div>
-            <h3>${item.folder_name}</h3>
-            <p style="color: #888;">${item.episodes.length} Episodes</p>
+            <h3>${highlightMatch(item.folder_name)}</h3>
+            <p style="color: #888;">${episodeInfo}</p>
         `;
         grid.appendChild(card);
     });
 }
 
-function showEpisodes(index) {
-    const folder = library[index];
-    document.getElementById('view-library').classList.add('hidden');
-    document.getElementById('view-episodes').classList.remove('hidden');
-    document.getElementById('current-folder-name').innerText = folder.folder_name;
-
-    const list = document.getElementById('episode-list');
-    list.innerHTML = '';
-
-    folder.episodes.forEach((ep, epIdx) => {
-        const row = document.createElement('div');
-        row.className = 'episode-row';
-        
-        let subOptions = `<option value="">None / Use Internal</option>`;
-        folder.local_subs.forEach(s => {
-            subOptions += `<option value="${s.path}">${s.name}</option>`;
-        });
-
-        let presetOptions = '';
-        availablePresets.forEach(p => {
-            const prettyName = p.replace(/_/g, ' ').toUpperCase();
-            presetOptions += `<option value="${p}">${prettyName}</option>`;
-        });
-
-        row.innerHTML = `
-            <div style="flex: 1;"><strong>${ep.name}</strong></div>
-            <div class="controls">
-                <label>Subs:</label>
-                <select id="sub-${index}-${epIdx}">${subOptions}</select>
-                
-                <label>Preset:</label>
-                <select id="preset-${index}-${epIdx}">
-                    ${presetOptions}
-                </select>
-                
-                <button onclick="startEpisode(${index}, ${epIdx})">▶ Start Stream</button>
-                <button class="stop" onclick="stopStream()">⏹ Stop</button>
-            </div>
-        `;
-        list.appendChild(row);
-    });
+function highlightMatch(text) {
+    if (!searchQuery) return text;
+    const regex = new RegExp(`(${escapeRegex(searchQuery)})`, 'gi');
+    return text.replace(regex, '<mark style="background: #007bff; color: white; padding: 2px 4px; border-radius: 4px;">$1</mark>');
 }
 
-function showLibrary() {
-    document.getElementById('view-library').classList.remove('hidden');
-    document.getElementById('view-episodes').classList.add('hidden');
-}
-
-async function startEpisode(folderIdx, epIdx) {
-    const folder = library[folderIdx];
-    const ep = folder.episodes[epIdx];
-    const subPath = document.getElementById(`sub-${folderIdx}-${epIdx}`).value;
-    const preset = document.getElementById(`preset-${folderIdx}-${epIdx}`).value;
-
-    const statusBar = document.getElementById('status-bar');
-    statusBar.innerText = `Preparing: ${ep.name}...`;
-    statusBar.classList.remove('hidden');
-
-    // Open player in new tab immediately
-    const playerWindow = window.open('/player', 'bedtime-player');
-
-    const probeRes = await fetch('/api/probe', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ path: ep.path })
-    });
-    const metadata = await probeRes.json();
-
-    await fetch('/api/start', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ 
-            path: ep.path, 
-            preset: preset, 
-            sub_path: subPath,
-            has_internal_subs: metadata.has_internal_subs,
-            text_sub_index: metadata.text_sub_index,
-            pgs_sub_index: metadata.pgs_sub_index
-        })
-    });
-
-    statusBar.innerText = `NOW STREAMING: ${ep.name}`;
-}
-
-async function stopStream() {
-    await fetch('/api/stop', { method: 'POST' });
-    document.getElementById('status-bar').classList.add('hidden');
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 loadData();

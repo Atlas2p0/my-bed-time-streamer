@@ -1,5 +1,5 @@
 import os
-from flask import Flask, send_from_directory, render_template
+from flask import Flask, send_from_directory, render_template 
 import socket
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -7,7 +7,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__,
     template_folder=os.path.join(PROJECT_ROOT, 'web', 'templates'),
     static_folder=os.path.join(PROJECT_ROOT, 'web', 'static'),
-    static_url_path='/web/static'
+    static_url_path='/static'
 )
 
 from routes import register_blueprints
@@ -30,6 +30,11 @@ def serve_hls(filename):
 @app.route('/player')
 def player():
     return render_template('player.html')
+
+
+@app.route('/movie')
+def movie():
+    return render_template('movie.html')
 
 
 def get_local_ip():
