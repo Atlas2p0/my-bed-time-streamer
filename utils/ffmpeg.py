@@ -1,8 +1,15 @@
 import os
 import subprocess
 import json
+from pathlib import Path
 
 from config import HLS_DIR
+
+
+def escape_path_for_ffmpeg(path):
+    """Escape path for FFmpeg filter expressions."""
+    path = Path(path).as_posix()
+    return path.replace("'", "'\\\\\\''").replace(":", "\\:")
 
 
 def get_video_metadata(file_path):
@@ -18,10 +25,8 @@ def get_video_metadata(file_path):
         result = subprocess.check_output(cmd).decode('utf-8')
         data = json.loads(result)
 
-        # Find the index of the first Text-Based subtitle stream
         text_sub_index = None
         pgs_sub_index = None
-        # Common text formats supported by libass
         text_formats = ['ass', 'ssa', 'subrip', 'srt', 'mov_text']
 
         sub_count = 0
@@ -30,7 +35,6 @@ def get_video_metadata(file_path):
                 codec = s.get('codec_name', '')
                 if codec in text_formats and text_sub_index is None:
                     text_sub_index = sub_count
-
                 elif codec == 'hdmv_pgs_subtitle' and pgs_sub_index is None:
                     pgs_sub_index = sub_count
                 sub_count += 1
@@ -41,8 +45,7 @@ def get_video_metadata(file_path):
             "text_sub_index": text_sub_index,
             "pgs_sub_index": pgs_sub_index,
             "codec": video_stream.get('codec_name') if video_stream else "unknown",
-            "resolution":
-            f"{video_stream.get('width')}x{video_stream.get('height')}" if video_stream else "unknown"
+            "resolution": f"{video_stream.get('width')}x{video_stream.get('height')}" if video_stream else "unknown"
         }
     except Exception as e:
         print(f"Error probing {file_path}: {e}")
@@ -51,62 +54,67 @@ def get_video_metadata(file_path):
 
 def build_ffmpeg_command(movie_path, preset, metadata, sub_path=None):
     """Build the FFmpeg command for CMAF streaming."""
-    # Base command
+    # Ensure output directory exists and change to it
+    hls_native = Path(HLS_DIR)
+    hls_native.mkdir(parents=True, exist_ok=True)
+    
+    # Use relative paths for FFmpeg to avoid Windows absolute path bugs
+    # Change working directory to HLS_DIR and use relative filenames
+    init_file = "init.mp4"
+    segment_file = "chunk_%d.m4s"
+    playlist_file = "index.m3u8"
+    
     cmd = ["ffmpeg", "-y", "-i", movie_path]
 
     # Filter Logic
-    filter_str = ""
     if sub_path and sub_path != "":
-        # External SRT
-        esc_sub = sub_path.replace("'", "'\\\\\\''").replace(":", "\\:")
+        esc_sub = escape_path_for_ffmpeg(sub_path)
         filter_str = f"subtitles='{esc_sub}',format=yuv420p"
         cmd += ["-vf", filter_str]
     elif metadata.get('text_sub_index') is not None:
-        # Internal Text (ASS/SRT)
+        esc_path = escape_path_for_ffmpeg(movie_path)
         idx = metadata.get('text_sub_index')
-        esc_path = movie_path.replace("'", "'\\\\\\''").replace(":", "\\:")
         filter_str = f"subtitles='{esc_path}':si={idx},format=yuv420p"
         cmd += ["-vf", filter_str]
     elif metadata.get('pgs_sub_index') is not None:
-        # Internal Image (PGS)
         idx = metadata.get('pgs_sub_index')
         cmd += ["-filter_complex", f"[0:v][0:s:{idx}]overlay,format=yuv420p"]
     else:
-        # No Subs
         cmd += ["-vf", "format=yuv420p"]
 
-    # Video encoding - CMAF compatible (fMP4)
+    # Video/audio encoding
     cmd += ["-c:v", preset['v_codec']] + preset['v_profile']
-
-    # Audio encoding - CMAF compatible
     cmd += ["-c:a", preset['a_codec'], "-b:a", "192k", "-ac", "2"]
 
-    # CMAF settings
+    # CMAF settings with relative paths
     cmd += [
-        # Enable CMAF mode
         "-f", "hls",
         "-hls_playlist_type", "event",
         "-hls_flags", "independent_segments+omit_endlist",
-        "-hls_segment_type", "fmp4",  # Fragmented MP4 for CMAF
+        "-hls_segment_type", "fmp4",
         "-hls_time", "6",
         "-hls_list_size", "0",
-        # CMAF initialization segment
-        "-hls_fmp4_init_filename", f"{HLS_DIR}/init.mp4",
-        # Segment template
-        "-hls_segment_filename", f"{HLS_DIR}/chunk_%d.m4s",
-        # Output playlist
-        f"{HLS_DIR}/index.m3u8"
+        "-hls_fmp4_init_filename", init_file,
+        "-hls_segment_filename", segment_file,
+        playlist_file
     ]
-
-    return cmd
+    
+    # Return command and working directory
+    return cmd, str(hls_native)
 
 
 def cleanup_hls_directory():
     """Remove old CMAF segments and playlist files."""
-    extensions = (".m4s", ".m3u8", ".mp4")  # CMAF uses .m4s and .mp4
-    for f in os.listdir(HLS_DIR):
-        if f.endswith(extensions):
+    extensions = (".m4s", ".m3u8", ".mp4")
+    
+    hls_dir_native = Path(HLS_DIR)
+    
+    if not hls_dir_native.exists():
+        return
+        
+    for f in hls_dir_native.iterdir():
+        if f.suffix in extensions:
             try:
-                os.remove(os.path.join(HLS_DIR, f))
+                f.unlink()
             except:
                 pass

@@ -224,15 +224,15 @@ def configure_paths():
     print_step("Configuring paths...")
     
     config = {}
-    
-    # Default paths based on platform
     plat = get_platform()
+    
+    # Platform-appropriate defaults
     if plat == 'windows':
-        default_media = 'C:\\Users\\' + os.getlogin() + '\\Videos'
-        default_stream = 'C:\\temp\\bedtime-streamer'
+        default_media = str(Path.home() / 'Videos')
+        default_stream = str(Path.home() / 'AppData' / 'Local' / 'bedtime-streamer' / 'stream-chunks')
     else:
         default_media = str(Path.home() / 'Videos')
-        default_stream = '/tmp/bedtime-streamer'
+        default_stream = str(Path.home() / '.local' / 'share' / 'bedtime-streamer' / 'stream-chunks')
     
     print(f"\n{Colors.YELLOW}Media Library Path{Colors.END}")
     print("This is where your movies/TV shows are stored")
@@ -244,14 +244,21 @@ def configure_paths():
     stream_path = input(f"Enter path [{default_stream}]: ").strip()
     config['stream_path'] = stream_path if stream_path else default_stream
     
-    # Create directories if they don't exist
+    # Create directories (native paths, works everywhere)
     Path(config['media_path']).mkdir(parents=True, exist_ok=True)
-    Path(config['stream_path']).mkdir(parents=True, exist_ok=True)
     
-    # Save config
+    # Create stream-chunks subdirectory
+    stream_chunks_path = Path(config['stream_path'])
+    stream_chunks_path.mkdir(parents=True, exist_ok=True)
+    print_success(f"Created stream directory: {stream_chunks_path}")
+    
+    # Save config with forward slashes for FFmpeg
     config_file = Path('config.json')
     with open(config_file, 'w') as f:
-        json.dump(config, f, indent=2)
+        json.dump({
+            'media_path': Path(config['media_path']).as_posix(),
+            'stream_path': Path(config['stream_path']).as_posix()
+        }, f, indent=2)
     
     # Update config.py
     update_config_py(config)
@@ -264,19 +271,42 @@ def update_config_py(config):
     """Update config.py with user paths"""
     config_py = Path('config.py')
     
+    # Convert to forward slashes for the config file
+    media_posix = Path(config['media_path']).as_posix()
+    stream_posix = Path(config['stream_path']).as_posix()
+    
     if not config_py.exists():
         print_warning("config.py not found, creating default...")
         default_config = f'''"""Configuration for Bedtime Streamer"""
 
 import os
+import json
+from pathlib import Path
+
+# Try to load from config.json first (created by setup.py)
+config_file = Path(__file__).parent / 'config.json'
+if config_file.exists():
+    with open(config_file) as f:
+        _config = json.load(f)
+    _default_media = _config.get('media_path', str(Path.home() / "Videos"))
+    _default_stream = _config.get('stream_path', str(Path.home() / "bedtime-streamer" / "stream-chunks"))
+else:
+    _default_media = str(Path.home() / "Videos")
+    _default_stream = str(Path.home() / "bedtime-streamer" / "stream-chunks")
 
 # Paths (can be overridden by environment variables)
-LIBRARY_PATH = os.environ.get("LIBRARY_PATH", "{config['media_path']}")
-HLS_DIR = os.environ.get("HLS_DIR", "{config['stream_path']}")
-VIDEO_EXTENSIONS = ('.mp4', '.mkv', '.avi', '.mov')
+LIBRARY_PATH_RAW = os.environ.get("LIBRARY_PATH", "{media_posix}")
+HLS_DIR_RAW = os.environ.get("HLS_DIR", "{stream_posix}")
 
-# Ensure directories exist
-os.makedirs(HLS_DIR, exist_ok=True)
+# Convert to forward slashes for FFmpeg compatibility (works everywhere)
+HLS_DIR = Path(HLS_DIR_RAW).as_posix()
+LIBRARY_PATH = Path(LIBRARY_PATH_RAW).as_posix()
+
+# Create directories using native paths (works on all OS)
+Path(HLS_DIR_RAW).mkdir(parents=True, exist_ok=True)
+Path(LIBRARY_PATH_RAW).mkdir(parents=True, exist_ok=True)
+
+VIDEO_EXTENSIONS = ('.mp4', '.mkv', '.avi', '.mov')
 
 PRESETS = {{
     "cpu_fast": {{
@@ -300,17 +330,20 @@ PRESETS = {{
             f.write(default_config)
         return
     
-    # Read existing and update
+    # Read existing and update - use regex for more robust replacement
     content = config_py.read_text()
     
-    # Replace paths
-    content = content.replace(
-        'LIBRARY_PATH = "/media/atlas/Gaming/Media Library/"',
-        f'LIBRARY_PATH = "{config["media_path"]}"'
+    # Replace LIBRARY_PATH_RAW default
+    import re
+    content = re.sub(
+        r'LIBRARY_PATH_RAW\s*=\s*os\.environ\.get\([^,]+,\s*"[^"]*"\)',
+        f'LIBRARY_PATH_RAW = os.environ.get("LIBRARY_PATH", "{media_posix}")',
+        content
     )
-    content = content.replace(
-        'HLS_DIR = "/var/www/hls"',
-        f'HLS_DIR = "{config["stream_path"]}"'
+    content = re.sub(
+        r'HLS_DIR_RAW\s*=\s*os\.environ\.get\([^,]+,\s*"[^"]*"\)',
+        f'HLS_DIR_RAW = os.environ.get("HLS_DIR", "{stream_posix}")',
+        content
     )
     
     with open(config_py, 'w') as f:

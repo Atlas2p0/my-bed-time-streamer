@@ -1,6 +1,7 @@
 """Filesystem utilities for scanning and discovering media files."""
 
 import os
+from pathlib import Path
 
 from config import LIBRARY_PATH, VIDEO_EXTENSIONS
 
@@ -9,8 +10,16 @@ def scan_library():
     """Scan the media library and return folder/episode structure."""
     library_data = []
     
+    # Convert forward-slash path back to native path for OS operations
+    lib_path_native = Path(LIBRARY_PATH)
+    
+    # Check if path exists
+    if not lib_path_native.exists():
+        print(f"Warning: Library path does not exist: {lib_path_native}")
+        return library_data
+    
     # We list the top-level directories in your Media Library
-    for entry in os.scandir(LIBRARY_PATH):
+    for entry in os.scandir(lib_path_native):
         if entry.is_dir():
             folder_path = entry.path
             episodes = []

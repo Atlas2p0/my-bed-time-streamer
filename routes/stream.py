@@ -20,20 +20,30 @@ def stop_stream():
 
 @stream_bp.route('/api/start', methods=['POST'])
 def start_stream():
+    from models import stream_state
+    from config import PRESETS
+    
     data = request.json
     movie_path = data.get('path')
     preset_key = data.get('preset', 'cpu_fast')
     preset = PRESETS.get(preset_key)
     sub_path = data.get('sub_path')
 
-    # Re-probe to get the latest metadata
     metadata = get_video_metadata(movie_path)
-
-    # Build FFmpeg command
-    cmd = build_ffmpeg_command(movie_path, preset, metadata, sub_path)
-
-    # Cleanup and Start stream
+    
+    # Build command and get working directory
+    cmd, work_dir = build_ffmpeg_command(movie_path, preset, metadata, sub_path)
+    
+    # Cleanup and start in the correct directory
     cleanup_hls_directory()
     
-    stream_state.current_process = subprocess.Popen(cmd)
+    # Change to HLS directory for FFmpeg
+    import os
+    original_dir = os.getcwd()
+    try:
+        os.chdir(work_dir)
+        stream_state.current_process = subprocess.Popen(cmd)
+    finally:
+        os.chdir(original_dir)
+    
     return jsonify({"status": "started"})

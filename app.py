@@ -46,7 +46,7 @@ def get_local_ip():
         return ip
     except Exception:
         return '127.0.0.1'
-
+   
 if __name__ == "__main__":
     from waitress import serve
     
