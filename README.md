@@ -186,7 +186,7 @@ MIT License - See LICENSE file for details.
 
 # Acknowledgments
 
-- **FFmpeg** - The universal multimedia toolkit
-- **Flask** - Python web framework
-- **hls.js** - HLS player for browsers
+- <a href="https://ffmpeg.org/">**FFmpeg**</a> - The universal multimedia toolkit
+- <a href="https://flask.palletsprojects.com/en/stable/">**Flask**</a> - Python web framework
+- <a href="https://github.com/video-dev/hls.js/">**hls.js**</a> - HLS player for browsers
 
