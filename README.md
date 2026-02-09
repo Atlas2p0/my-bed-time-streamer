@@ -87,12 +87,13 @@ python app.py
 
 ### Expected Directory Hierarchy
 Make sure your directory is structured similarly as shown below
-D:/Media Library/                    <- LIBRARY_PATH
-├── Movie Folder 1/               <- Folder with videos inside
-│   ├── movie.mp4/mkv/..
-│   └── subtitles_en.srt/...
-└── Movie Folder 2/
-    └── movie.mp4/mkv/..
+	
+	D:/Media Library/                    <- LIBRARY_PATH
+	├── Movie Folder 1/               <- Folder with videos inside
+	│   ├── movie.mp4/mkv/...
+	│   └── subtitle_file.srt/ass/...
+	└── Movie Folder 2/
+	    └── movie.mp4/mkv/...
 # Usage
 
 1. **Browse** - Search and browse your media library on the home page
