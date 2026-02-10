@@ -162,6 +162,11 @@ Or use a package manager:
 	
 	# With winget
 	winget install Gyan.FFmpeg
+## Audio/Video Sync Issues
+
+If you have Audio-Subtitle/Video syncing issues it might be due to the container format itself you can use the check box to force A/V Sync before pressing play on the episode/movie. 
+<img width="1865" height="174" alt="image" src="https://github.com/user-attachments/assets/79ab01c1-d013-4cfc-b986-1785cd750d43" />
+
 
 ## Stream fails to start
 
