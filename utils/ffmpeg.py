@@ -51,15 +51,96 @@ def get_video_metadata(file_path):
         print(f"Error probing {file_path}: {e}")
         return None
 
-
-def build_ffmpeg_command(movie_path, preset, metadata, sub_path=None):
-    """Build the FFmpeg command for CMAF streaming."""
-    # Ensure output directory exists and change to it
+def build_ffmpeg_cmd_force_sync_av(movie_path, preset, metadata, sub_path=None):
+    """MKV-specific handling with forced A/V sync fixes."""
+    
     hls_native = Path(HLS_DIR)
     hls_native.mkdir(parents=True, exist_ok=True)
     
-    # Use relative paths for FFmpeg to avoid Windows absolute path bugs
-    # Change working directory to HLS_DIR and use relative filenames
+    init_file = "init.mp4"
+    segment_file = "chunk_%d.m4s"
+    playlist_file = "index.m3u8"
+    
+    cmd = ["ffmpeg", "-y"]
+    
+    # MKV-specific input flags
+    cmd += [
+        "-fflags", "+genpts",
+        "-thread_queue_size", "512",
+    ]
+    
+    cmd += ["-i", movie_path]
+    
+    # Sync and timing fixes
+    cmd += [
+        "-vsync", "cfr",
+        "-async", "1",
+        "-max_muxing_queue_size", "1024",
+    ]
+    
+    # Explicit stream mapping
+    cmd += ["-map", "0:v:0", "-map", "0:a:0"]
+
+    # Filter logic with timestamp normalization
+    base_vf = "setpts=PTS-STARTPTS,format=yuv420p"
+    
+    if sub_path and sub_path != "":
+        esc_sub = escape_path_for_ffmpeg(sub_path)
+        filter_str = f"subtitles='{esc_sub}',{base_vf}"
+        cmd += ["-vf", filter_str]
+    elif metadata.get('text_sub_index') is not None:
+        esc_path = escape_path_for_ffmpeg(movie_path)
+        idx = metadata.get('text_sub_index')
+        filter_str = f"subtitles='{esc_path}':si={idx},{base_vf}"
+        cmd += ["-vf", filter_str]
+    elif metadata.get('pgs_sub_index') is not None:
+        idx = metadata.get('pgs_sub_index')
+        cmd += ["-filter_complex", f"[0:v][0:s:{idx}]overlay,setpts=PTS-STARTPTS,format=yuv420p"]
+    else:
+        cmd += ["-vf", base_vf]
+
+    # Video encoding
+    cmd += ["-c:v", preset['v_codec']] + preset['v_profile']
+    cmd += [
+        "-g", "48",
+        "-keyint_min", "48",
+        "-sc_threshold", "0",
+    ]
+
+    # Audio encoding with sync
+    cmd += [
+        "-c:a", preset['a_codec'],
+        "-b:a", "192k",
+        "-ac", "2",
+        "-af", "aresample=async=1:min_hard_comp=0.100000:first_pts=0",
+    ]
+
+    # CMAF output
+    cmd += [
+        "-f", "hls",
+        "-hls_playlist_type", "event",
+        "-hls_flags", "independent_segments+omit_endlist",
+        "-hls_segment_type", "fmp4",
+        "-hls_time", "6",
+        "-hls_list_size", "0",
+        "-hls_fmp4_init_filename", init_file,
+        "-hls_segment_filename", segment_file,
+        playlist_file
+    ]
+    
+    return cmd, str(hls_native)
+
+def build_ffmpeg_command(movie_path, preset, metadata, sub_path=None, force_sync=False):
+    """Build the FFmpeg command for CMAF streaming."""
+    
+    # Route to force sync handler when flag is set
+    if force_sync:
+        return build_ffmpeg_cmd_force_sync_av(movie_path, preset, metadata, sub_path)
+    
+    # Original logic for all other cases (completely unchanged)
+    hls_native = Path(HLS_DIR)
+    hls_native.mkdir(parents=True, exist_ok=True)
+    
     init_file = "init.mp4"
     segment_file = "chunk_%d.m4s"
     playlist_file = "index.m3u8"
@@ -99,9 +180,7 @@ def build_ffmpeg_command(movie_path, preset, metadata, sub_path=None):
         playlist_file
     ]
     
-    # Return command and working directory
     return cmd, str(hls_native)
-
 
 def cleanup_hls_directory():
     """Remove old CMAF segments and playlist files."""

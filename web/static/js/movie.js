@@ -27,39 +27,40 @@ window.stopStream = async function() {
 };
 
 window.startEpisode = async function(epIdx) {
-    const ep = folder.episodes[epIdx];
-    const subPath = document.getElementById(`sub-${epIdx}`).value;
-    const preset = document.getElementById(`preset-${epIdx}`).value;
-    
-    const statusBar = document.getElementById('status-bar');
-    statusBar.textContent = `Preparing: ${ep.name}...`;
-    statusBar.style.display = 'block';
-    
-    window.open('/player', 'bedtime-player');
-    
-    const probeRes = await fetch('/api/probe', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ path: ep.path })
-    });
-    const metadata = await probeRes.json();
-    
-    await fetch('/api/start', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            path: ep.path,
-            preset: preset,
-            sub_path: subPath,
-            has_internal_subs: metadata.has_internal_subs,
-            text_sub_index: metadata.text_sub_index,
-            pgs_sub_index: metadata.pgs_sub_index
-        })
-    });
-    
-    statusBar.textContent = `NOW STREAMING: ${ep.name}`;
+  const ep = folder.episodes[epIdx];
+  const subPath = document.getElementById(`sub-${epIdx}`).value;
+  const preset = document.getElementById(`preset-${epIdx}`).value;
+  const forceSync = document.getElementById(`forcesync-${epIdx}`).checked;  
+  
+  const statusBar = document.getElementById('status-bar');
+  statusBar.textContent = `Preparing: ${ep.name}...`;
+  statusBar.style.display = 'block';
+  
+  window.open('/player', 'bedtime-player');
+  
+  const probeRes = await fetch('/api/probe', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ path: ep.path })
+  });
+  const metadata = await probeRes.json();
+  
+  await fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      path: ep.path,
+      preset: preset,
+      sub_path: subPath,
+      force_sync: forceSync,  
+      has_internal_subs: metadata.has_internal_subs,
+      text_sub_index: metadata.text_sub_index,
+      pgs_sub_index: metadata.pgs_sub_index
+    })
+  });
+  
+  statusBar.textContent = `NOW STREAMING: ${ep.name}`;
 };
-
 async function loadData() {
     const [libRes, preRes] = await Promise.all([
         fetch('/api/library'),
@@ -103,6 +104,7 @@ function renderMovie() {
             presetOptions += `<option value="${p}" ${selected}>${prettyName}</option>`;
         });
         
+        
         item.innerHTML = `
             <div class="episode-name">${ep.name}</div>
             <div class="options-row">
@@ -114,8 +116,15 @@ function renderMovie() {
                     <label>Quality</label>
                     <select id="preset-${idx}">${presetOptions}</select>
                 </div>
+                <div class="checkbox-group">
+                    <label>Force A/V Sync</label>
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="forcesync-${idx}">
+                        <span>Force A/V sync</span>
+                    </label>
+                </div>
                 <div class="button-group">
-                <button class="play" onclick="startEpisode(${idx})">▶ Play</button>
+                    <button class="play" onclick="startEpisode(${idx})">▶ Play</button>
                     <button class="stop" onclick="stopStream()">⏹ Stop</button>
                 </div>
             </div>
